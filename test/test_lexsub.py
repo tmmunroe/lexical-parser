@@ -1,4 +1,4 @@
-from lexsub_main import get_lemmas_from_synsets, get_candidates, wn_frequency_predictor
+from lexsub_main import get_lemmas_from_synsets, get_candidates, wn_frequency_predictor, wn_simple_lesk_predictor
 from lexsub_xml import Context
 
 def test_get_lemmas_from_synsets():
@@ -23,3 +23,16 @@ def test_wn_frequency_predictor():
     max_key = wn_frequency_predictor(context)
     expected = 'dumb'
     assert max_key == expected
+
+def test_wn_simple_lesk_predictor():
+    context = Context(
+        None, 'examination', 
+        'examination', 'n',
+        ['all', 'questions'],
+        ['were', 'difficult']
+    )
+
+    predicted = wn_simple_lesk_predictor(context)
+    expected = 'scrutiny'
+    assert predicted == expected
+

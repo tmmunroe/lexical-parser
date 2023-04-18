@@ -129,8 +129,9 @@ class Word2VecSubst(object):
         self.model:gensim.models.keyedvectors.KeyedVectors = gensim.models.KeyedVectors.load_word2vec_format(filename, binary=True)    
 
     def predict_nearest(self,context : Context) -> str:
-        candidates = [c for c in get_candidates(context.lemma, context.pos) if self.model.has_index_for(c)]
-        return self.model.most_similar_to_given(context.lemma, candidates)
+        candidates = {c for c in get_candidates(context.lemma, context.pos) if self.model.has_index_for(c)}
+        candidates.remove(context.lemma)
+        return self.model.most_similar_to_given(context.lemma, list(candidates))
 
 
 class BertPredictor(object):
@@ -140,16 +141,27 @@ class BertPredictor(object):
         self.model = transformers.TFDistilBertForMaskedLM.from_pretrained('distilbert-base-uncased')
 
     def predict(self, context : Context) -> str:
+        mask = '[MASK]'
         candidates = set(get_candidates(context.lemma, context.pos))
-        lemma_position = len(context.left_context)
-        context_str = ' '.join(context.left_context + '[MASK]' + context.right_context)
+        candidates.remove(context.lemma)
+        context_str = ' '.join(context.left_context + [mask] + context.right_context)
 
-        input_toks = self.tokenizer.encode(context_str)
-        input_mat = np.array(input_toks).reshape((1,-1))
+        # convert to tokens and then convert back to get the mask position
+        input_ids = self.tokenizer.encode(context_str)
+        input_toks = self.tokenizer.convert_ids_to_tokens(input_ids)
+        mask_position = input_toks.index(mask)
+        if input_toks[mask_position] != mask:
+            raise ValueError(f'expected mask_position {mask_position} to contain {mask}, but found {input_toks[mask_position]} instead!')
+
+        # run prediction
+        input_mat = np.array(input_ids).reshape((1,-1))
         outputs = self.model.predict(input_mat)
         predictions = outputs[0]
-        best_words = np.argsort(predictions[0][lemma_position])[::-1] # Sort in increasing order
+
+        # get the best words for the prediction on mask_position
+        best_words = np.argsort(predictions[0][mask_position])[::-1] # Sort in increasing order
         
+        # iterate through best words and return one if found
         for best_word in best_words:
             token = self.tokenizer.convert_ids_to_tokens([best_word])[0]
             if token in candidates:
@@ -165,10 +177,10 @@ if __name__=="__main__":
     W2VMODEL_FILENAME = 'data/GoogleNews-vectors-negative300.bin.gz'
 
     # predictor = smurf_predictor
-    predictor = wn_simple_lesk_predictor
+    # predictor = wn_simple_lesk_predictor
     # predictor = wn_frequency_predictor
     # predictor = Word2VecSubst(W2VMODEL_FILENAME).predict_nearest
-    # predictor = BertPredictor().predict
+    predictor = BertPredictor().predict
 
     
     for context in read_lexsub_xml(sys.argv[1]):

@@ -20,16 +20,20 @@ def bert_predictor():
 
 def resolve_predictor(predictor_name):
     predictor_map = {
-        'smurf': smurf_predictor,
-        'freq': wn_frequency_predictor,
-        'lesk': wn_simple_lesk_predictor,
-        'word2vec': word2vec_predictor,
-        'bert': bert_predictor
+        'smurf': (smurf_predictor, False),
+        'freq': (wn_frequency_predictor, False),
+        'lesk': (wn_simple_lesk_predictor, False),
+        'word2vec': (word2vec_predictor, True),
+        'bert': (bert_predictor, True)
     }
 
     if predictor_name not in predictor_map:
         raise ValueError(f'Could not resolve predictor {predictor_name}')
-    return predictor_map[predictor_name]
+    
+    predictor, instantiate = predictor_map[predictor_name]
+    if instantiate:
+        predictor = predictor()
+    return predictor
 
 
 if __name__=="__main__":

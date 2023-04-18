@@ -38,15 +38,15 @@ def clean_lemma_name(lemma: str) -> str:
 def get_lemmas_from_synsets(lemma, pos) -> List:
     lemmas = []
     for synset in wn.synsets(lemma, pos):
-        lemmas.extend(synset.lemmas())
+        for synset_lemma in synset.lemmas():
+            if synset_lemma.name != lemma: 
+                # only include lemmas that don't match the input
+                lemmas.append(synset_lemma)
     return lemmas
 
 def get_candidates(lemma:str, pos:str) -> List[str]:
     # lemmas from wordnet
     lemmas = {lemma.name() for lemma in get_lemmas_from_synsets(lemma, pos)}
-
-    # remove input lemma
-    lemmas.remove(lemma)
 
     # correct compound words
     lemmas = {clean_lemma_name(lemma) for lemma in lemmas}
@@ -108,20 +108,33 @@ def top_scores(score_list):
 
 def wn_simple_lesk_predictor(context : Context) -> str:
     # get lemmas for context word
+    print('Lemma Context: ', context.lemma)
+    
+    # TODO: 
+    def get_lemmas_from_synsets(lemma, pos) -> List:
+
+
     lemmas = wn.lemmas(context.lemma, context.pos)
+    
+    print('Lemmas: ', lemmas)
     if not lemmas:
         raise ValueError('No lemmas found for context: ', context)
     
     # calculate similarity scores for each lemma's synset
     context_str = ' '.join(context.left_context + [context.word_form] + context.right_context)
     lemma_overlap_scores = [(lemma, synset_overlaps(context_str, lemma.synset())) for lemma in lemmas]
-
+    print('Lemma Overlap Scores: ', lemma_overlap_scores)
+    
     # figure out the lemma with the best synset, resolving ties
     best_lemma_scores = top_scores(lemma_overlap_scores)
+    print('Best Lemma Scores: ', best_lemma_scores)
+
     if len(best_lemma_scores) == 1:
         best_lemma, _ = best_lemma_scores[0]
     else: # tie - use the synset where the context lemma is most frequent
         best_lemma, _ = max(best_lemma_scores, key=lambda lemma_score: lemma_score[0].count())
+    print('Best Lemmas: ', best_lemma)
+    print(best_lemma.synset().lemmas())
     
     # get the synset synonym with the highest frequency 
     best_synonym_lemma, best_count = None, -1
@@ -129,6 +142,7 @@ def wn_simple_lesk_predictor(context : Context) -> str:
         if lemma.count() > best_count and lemma.name() != context.lemma:
             best_synonym_lemma = lemma
             best_count = lemma.count()
+    print('Best Synonym: ', best_synonym_lemma, best_count)
 
     return clean_lemma_name(best_synonym_lemma.name())
    
@@ -136,10 +150,11 @@ def wn_simple_lesk_predictor(context : Context) -> str:
 class Word2VecSubst(object):
         
     def __init__(self, filename):
-        self.model = gensim.models.KeyedVectors.load_word2vec_format(filename, binary=True)    
+        self.model:gensim.models.keyedvectors.KeyedVectors = gensim.models.KeyedVectors.load_word2vec_format(filename, binary=True)    
 
     def predict_nearest(self,context : Context) -> str:
-        return None # replace for part 4
+        candidates = [c for c in get_candidates(context.lemma, context.pos) if self.model.has_index_for(c)]
+        return self.model.most_similar_to_given(context.lemma, candidates)
 
 
 class BertPredictor(object):
@@ -149,18 +164,38 @@ class BertPredictor(object):
         self.model = transformers.TFDistilBertForMaskedLM.from_pretrained('distilbert-base-uncased')
 
     def predict(self, context : Context) -> str:
-        return None # replace for part 5
+        candidates = set(get_candidates(context.lemma, context.pos))
+        lemma_position = len(context.left_context)
+        context_str = ' '.join(context.left_context + '[MASK]' + context.right_context)
+
+        input_toks = self.tokenizer.encode(context_str)
+        input_mat = np.array(input_toks).reshape((1,-1))
+        outputs = self.model.predict(input_mat)
+        predictions = outputs[0]
+        best_words = np.argsort(predictions[0][lemma_position])[::-1] # Sort in increasing order
+        
+        for best_word in best_words:
+            token = self.tokenizer.convert_ids_to_tokens([best_word])[0]
+            if token in candidates:
+                return token
+
+        return None
 
     
 
 if __name__=="__main__":
 
     # At submission time, this program should run your best predictor (part 6).
+    W2VMODEL_FILENAME = 'data/GoogleNews-vectors-negative300.bin.gz'
 
-    #W2VMODEL_FILENAME = 'GoogleNews-vectors-negative300.bin.gz'
-    #predictor = Word2VecSubst(W2VMODEL_FILENAME)
+    # predictor = smurf_predictor
+    predictor = wn_simple_lesk_predictor
+    # predictor = wn_frequency_predictor
+    # predictor = Word2VecSubst(W2VMODEL_FILENAME).predict_nearest
+    # predictor = BertPredictor().predict
 
+    
     for context in read_lexsub_xml(sys.argv[1]):
-        #print(context)  # useful for debugging
-        prediction = smurf_predictor(context) 
+        print(context)  # useful for debugging
+        prediction = predictor(context)
         print("{}.{} {} :: {}".format(context.lemma, context.pos, context.cid, prediction))

@@ -33,7 +33,7 @@ def sentence2tokens(sentence: str) -> List[str]:
     return [stemmer.stem(w) for w in word_tokenize(sentence) if w not in stop_words]
 
 def clean_lemma_name(lemma: str) -> str:
-    return lemma.replace('_', ' ')
+    return lemma.lower().replace('_', ' ')
 
 def get_lemmas_from_synsets(lemma, pos) -> List:
     lemmas = []
@@ -82,69 +82,45 @@ def collect_synset_samples(synset, extended=True) -> List[str]:
             samples.extend(collect_synset_samples(hypernym, extended=False))
     return samples
 
-def synset_overlaps(context_str:str, synset) -> float:
-    context_set = set(sentence2tokens(context_str))
-    joined_samples = set(sentence2tokens(' '.join(collect_synset_samples(synset))))
-    intersection = context_set & joined_samples
-    # print(context_set)
-    # print(joined_samples)
-    # print(intersection)
-    # print(len(intersection))
-    # print(synset)
-    # print([(l, l.count()) for l in synset.lemmas()])
-    # print('--------------------------------------------------')
-    # print('--------------------------------------------------')
-
-    return len(intersection)
-
-def top_scores(score_list):
-    sorted_score_list = sorted(score_list, key=lambda item: item[1], reverse=True)
-    best_score = sorted_score_list[0][1]
-    best_end = 1
-    for best_end in range(1, len(sorted_score_list)):
-        if sorted_score_list[best_end][1] < best_score:
-            return sorted_score_list[:best_end]
-    return sorted_score_list
-
 def wn_simple_lesk_predictor(context : Context) -> str:
     # get lemmas for context word
-    print('Lemma Context: ', context.lemma)
-    
-    # TODO: 
-    def get_lemmas_from_synsets(lemma, pos) -> List:
-
-
-    lemmas = wn.lemmas(context.lemma, context.pos)
-    
-    print('Lemmas: ', lemmas)
-    if not lemmas:
-        raise ValueError('No lemmas found for context: ', context)
+    clean_name = clean_lemma_name(context.lemma)
+    synsets = wn.synsets(context.lemma, context.pos)
     
     # calculate similarity scores for each lemma's synset
     context_str = ' '.join(context.left_context + [context.word_form] + context.right_context)
-    lemma_overlap_scores = [(lemma, synset_overlaps(context_str, lemma.synset())) for lemma in lemmas]
-    print('Lemma Overlap Scores: ', lemma_overlap_scores)
-    
+    lemma_synset_scores = []
+    for synset in synsets:
+        # get overlap
+        context_set = set(sentence2tokens(context_str))
+        joined_samples = set(sentence2tokens(' '.join(collect_synset_samples(synset))))
+        synset_overlap = len(context_set & joined_samples)
+
+        # get lemma frequency
+        lemma_frequency = 0
+        for lemma in synset.lemmas():
+            if clean_lemma_name(lemma.name()) == clean_name:
+                lemma_frequency = lemma.count()
+                break
+        else:
+            raise ValueError('Expected to find lemma ', context.lemma, ' in synset ', synset)
+
+        # get synset base score
+        base_score = (10000*synset_overlap) + (100*lemma_frequency)
+
+        # score lemmas in synset
+        for lemma in synset.lemmas():
+            if clean_lemma_name(lemma.name()) == clean_name: # skip context lemma since we only want replacements
+                continue
+
+            score = base_score + lemma.count()
+            lemma_synset_scores.append((lemma, score))
+
     # figure out the lemma with the best synset, resolving ties
-    best_lemma_scores = top_scores(lemma_overlap_scores)
-    print('Best Lemma Scores: ', best_lemma_scores)
+    best_lemma_scores = sorted(lemma_synset_scores, key=lambda item: item[-1], reverse=True)
+    best_lemma, _ = best_lemma_scores[0]
 
-    if len(best_lemma_scores) == 1:
-        best_lemma, _ = best_lemma_scores[0]
-    else: # tie - use the synset where the context lemma is most frequent
-        best_lemma, _ = max(best_lemma_scores, key=lambda lemma_score: lemma_score[0].count())
-    print('Best Lemmas: ', best_lemma)
-    print(best_lemma.synset().lemmas())
-    
-    # get the synset synonym with the highest frequency 
-    best_synonym_lemma, best_count = None, -1
-    for lemma in best_lemma.synset().lemmas():
-        if lemma.count() > best_count and lemma.name() != context.lemma:
-            best_synonym_lemma = lemma
-            best_count = lemma.count()
-    print('Best Synonym: ', best_synonym_lemma, best_count)
-
-    return clean_lemma_name(best_synonym_lemma.name())
+    return clean_lemma_name(best_lemma.name())
    
 
 class Word2VecSubst(object):

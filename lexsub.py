@@ -35,6 +35,6 @@ def resolve_predictor(predictor_name):
 if __name__=="__main__":
     predictor = resolve_predictor(sys.argv[1])
     for context in read_lexsub_xml('lexsub_trial.xml'):
-        print(context)  # useful for debugging
+        # print(context)  # useful for debugging
         prediction = predictor(context)
         print("{}.{} {} :: {}".format(context.lemma, context.pos, context.cid, prediction))

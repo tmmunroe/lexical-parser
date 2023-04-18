@@ -5,7 +5,8 @@ from lexsub_main import (
     wn_frequency_predictor,
     wn_simple_lesk_predictor,
     Word2VecSubst,
-    BertPredictor
+    BertPredictor,
+    ensemble_predictor
 )
 
 from lexsub_xml import read_lexsub_xml
@@ -24,7 +25,8 @@ def resolve_predictor(predictor_name):
         'freq': (wn_frequency_predictor, False),
         'lesk': (wn_simple_lesk_predictor, False),
         'word2vec': (word2vec_predictor, True),
-        'bert': (bert_predictor, True)
+        'bert': (bert_predictor, True),
+        'ensemble': (ensemble_predictor, True)
     }
 
     if predictor_name not in predictor_map:

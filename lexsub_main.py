@@ -18,6 +18,7 @@ import gensim
 import transformers 
 
 from typing import List
+from collections import Counter
 
 stemmer = PorterStemmer()
 stop_words = stopwords.words('english')
@@ -129,9 +130,10 @@ class Word2VecSubst(object):
         self.model:gensim.models.keyedvectors.KeyedVectors = gensim.models.KeyedVectors.load_word2vec_format(filename, binary=True)    
 
     def predict_nearest(self,context : Context) -> str:
-        candidates = {c for c in get_candidates(context.lemma, context.pos) if self.model.has_index_for(c)}
-        candidates.remove(context.lemma)
-        return self.model.most_similar_to_given(context.lemma, list(candidates))
+        clean_lemma = clean_lemma_name(context.lemma)
+        candidates = {c for c in get_candidates(clean_lemma, context.pos) if self.model.has_index_for(c)}
+        candidates.remove(clean_lemma)
+        return self.model.most_similar_to_given(clean_lemma, list(candidates))
 
 
 class BertPredictor(object):
@@ -142,8 +144,9 @@ class BertPredictor(object):
 
     def predict(self, context : Context) -> str:
         mask = '[MASK]'
-        candidates = set(get_candidates(context.lemma, context.pos))
-        candidates.remove(context.lemma)
+        clean_lemma = clean_lemma_name(context.lemma)
+        candidates = set(get_candidates(clean_lemma, context.pos))
+        candidates.remove(clean_lemma)
         context_str = ' '.join(context.left_context + [mask] + context.right_context)
 
         # convert to tokens and then convert back to get the mask position
@@ -155,7 +158,7 @@ class BertPredictor(object):
 
         # run prediction
         input_mat = np.array(input_ids).reshape((1,-1))
-        outputs = self.model.predict(input_mat)
+        outputs = self.model.predict(input_mat, verbose=False)
         predictions = outputs[0]
 
         # get the best words for the prediction on mask_position
@@ -163,12 +166,31 @@ class BertPredictor(object):
         
         # iterate through best words and return one if found
         for best_word in best_words:
-            token = self.tokenizer.convert_ids_to_tokens([best_word])[0]
+            token = clean_lemma_name(self.tokenizer.convert_ids_to_tokens([best_word])[0])
             if token in candidates:
                 return token
 
         return None
 
+def ensemble_predictor():
+    W2VMODEL_FILENAME = 'data/GoogleNews-vectors-negative300.bin.gz'
+
+    predictors = [
+        (wn_simple_lesk_predictor, 0.2),
+        (wn_frequency_predictor, 0.15),
+        (Word2VecSubst(W2VMODEL_FILENAME).predict_nearest, 0.3),
+        (BertPredictor().predict, 0.35)
+    ]
+
+    def predict(context : Context) -> str:
+        words = {}
+        for predictor, weight in predictors:
+            prediction = predictor(context)
+            words[prediction] = weight +  words.setdefault(prediction, 0.0)
+        return max(words, key=lambda w: words[w])
+
+    return predict
+    
     
 
 if __name__=="__main__":
@@ -180,7 +202,8 @@ if __name__=="__main__":
     # predictor = wn_simple_lesk_predictor
     # predictor = wn_frequency_predictor
     # predictor = Word2VecSubst(W2VMODEL_FILENAME).predict_nearest
-    predictor = BertPredictor().predict
+    # predictor = BertPredictor().predict
+    predictor = ensemble_predictor()
 
     
     for context in read_lexsub_xml(sys.argv[1]):

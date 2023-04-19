@@ -172,6 +172,32 @@ class BertPredictor(object):
 
         return None
 
+    def predict_best(self, context : Context) -> str:
+        mask = '[MASK]'
+        clean_lemma = clean_lemma_name(context.lemma)
+        candidates = set(get_candidates(clean_lemma, context.pos))
+        candidates.remove(clean_lemma)
+        context_str = ' '.join(context.left_context + [mask] + context.right_context)
+
+        # convert to tokens and then convert back to get the mask position
+        input_ids = self.tokenizer.encode(context_str)
+        input_toks = self.tokenizer.convert_ids_to_tokens(input_ids)
+        mask_position = input_toks.index(mask)
+        if input_toks[mask_position] != mask:
+            raise ValueError(f'expected mask_position {mask_position} to contain {mask}, but found {input_toks[mask_position]} instead!')
+
+        # run prediction
+        input_mat = np.array(input_ids).reshape((1,-1))
+        outputs = self.model.predict(input_mat, verbose=False)
+        predictions = outputs[0]
+
+        # get the best words for the prediction on mask_position
+        best_words = np.argsort(predictions[0][mask_position])[::-1] # Sort in increasing order
+        
+        # iterate through best words and return one if found
+        best_word = clean_lemma_name(self.tokenizer.convert_ids_to_tokens([best_words[0]])[0])
+        return best_word
+    
 def ensemble_predictor():
     W2VMODEL_FILENAME = 'data/GoogleNews-vectors-negative300.bin.gz'
 

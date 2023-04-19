@@ -19,6 +19,9 @@ def word2vec_predictor():
 def bert_predictor():
     return BertPredictor().predict
 
+def bertbest_predictor():
+    return BertPredictor().predict_best
+
 def resolve_predictor(predictor_name):
     predictor_map = {
         'smurf': (smurf_predictor, False),
@@ -26,6 +29,7 @@ def resolve_predictor(predictor_name):
         'lesk': (wn_simple_lesk_predictor, False),
         'word2vec': (word2vec_predictor, True),
         'bert': (bert_predictor, True),
+        'bertbest': (bertbest_predictor, True),
         'ensemble': (ensemble_predictor, True)
     }
 

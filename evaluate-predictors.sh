@@ -1,4 +1,4 @@
-predictors=(smurf freq lesk word2vec bert ensemble)
+predictors=(smurf freq lesk word2vec bert bertbest ensemble)
 
 for predictor in ${predictors[@]}
 do
